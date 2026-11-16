@@ -17,7 +17,8 @@ pages/             one file per screen of the website
 tests/
    regression.py      regression test cases
                       test_01_onboarding = agent onboarding + admin approval
-conftest.py        browser setup (no need to touch)
+created_users.csv  list of every user the test created (with PASSED / FAILED)
+conftest.py        browser setup, steps, --users, result summary (no need to touch)
 pytest.ini         pytest options (no need to touch)
 reports/           screenshot when a test fails
 ```
@@ -27,8 +28,20 @@ reports/           screenshot when a test fails
 ```powershell
 .\venv1\Scripts\activate
 pytest                          # browser visible
+pytest --users 3                # create 3 users (runs the test 3 times)
 $env:HEADLESS="1"; pytest       # no browser window
 ```
+
+While running, the terminal shows each step:
+```
+[STEP 4] Sign ICA ... done (52s)
+```
+At the end you get a result per test (and the step where it failed):
+```
+Test case 1 - Onboarding (user 2) ........ FAILED at 'Sign ICA'  (2m 54s)
+      user: Easton Weaver | easton.weaver@mailinator.com | 6465550169
+```
+Every created user is added to `created_users.csv` (open it in Excel).
 
 ## Add something new (3 steps)
 

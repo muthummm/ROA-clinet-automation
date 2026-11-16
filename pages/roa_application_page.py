@@ -37,7 +37,14 @@ class RoaApplicationPage(BasePage):
 
         def fill_form():
             self.fill(self.input("preferred_name"), user["full_name"])
-            self.click(self.page.locator("input[placeholder='MM/DD/YYYY']"))
+            date_box = self.page.locator("input[placeholder='MM/DD/YYYY']")
+            try:
+                date_box.click(timeout=10_000)
+            except Exception:
+                # something is covering the date box -> close it and open the calendar directly
+                print("Date box covered, opening calendar another way")
+                self.page.keyboard.press("Escape")
+                date_box.dispatch_event("click")
             self.click(self.page.locator(f"div[role='option'][aria-label='{DATE_OF_BIRTH}']"))
         self.fill_and_next(fill_form)
 

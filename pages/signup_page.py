@@ -10,7 +10,15 @@ class SignUpPage(BasePage):
         self.open("/login")
         self.click(self.page.locator("//a[@href='/sign-up']"))
         self.fill(self.input("email"), user["email"])
-        self.click(self.page.locator("//button[@type='submit' and normalize-space()='Get started']"))
+        get_started = self.page.locator("//button[@type='submit' and normalize-space()='Get started']")
+        otp_box = self.page.locator("input[aria-label='Please enter your pin code']").first
+        for attempt in range(1, 4):
+            self.click(get_started)
+            try:
+                self.wait_visible(otp_box, 30_000)
+                break
+            except Exception:
+                print(f"OTP box did not show (attempt {attempt}), clicking Get started again")
         self.enter_otp()
         self.click(self.page.locator("//button[@type='button' and normalize-space()='Continue']"))
 

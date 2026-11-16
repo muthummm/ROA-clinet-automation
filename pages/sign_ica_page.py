@@ -1,8 +1,13 @@
+import re
+
 from config import DEFAULT_TIMEOUT, SLOW_TIMEOUT
 from pages.base_page import BasePage
 
 ESIGN_FRAME = "iframe[name='x-hellosign-embedded']"
 REQUIRED = ":has([class*='__required--'])"      # Dropbox Sign marks mandatory fields like this
+# Dropbox Sign buttons: older version uses data-qa-ref, newer uses data-testid -> accept both
+NEXT_BUTTON = "[data-qa-ref='button-next'], [data-testid='button-next']"
+AGREE_BUTTON = "[data-qa-ref='button-agree'], [data-testid='button-agree']"
 
 
 class SignIcaPage(BasePage):
@@ -17,8 +22,8 @@ class SignIcaPage(BasePage):
 
         self.fill_mandatory_fields(user)
 
-        self.click(esign.locator("[data-qa-ref='button-next']", has_text="Continue"))
-        self.click(esign.locator("[data-qa-ref='button-agree']"))
+        self.click(esign.locator(NEXT_BUTTON, has_text="Continue"))
+        self.click(esign.locator(AGREE_BUTTON).or_(esign.get_by_role("button", name="I agree")).first)
         self.wait_visible(esign.get_by_text("Thanks for submitting your document!"), SLOW_TIMEOUT)
 
         # the app moves to the next page by itself; reload if it does not
@@ -78,9 +83,13 @@ class SignIcaPage(BasePage):
                                    has_text="Click to sign")
         checkboxes = esign.locator(f"[data-qa-ref='field-checkbox']{REQUIRED}"
                                    ":has(input[data-qa-ref='checkbox']:not(:checked))")
-        fields_left = esign.locator(".m-signature-request--header-fields-left-count")
+        # "13 required fields left" counter (found by its text - its CSS class changes)
+        fields_left = esign.locator("span", has_text=re.compile(r"^\s*\d+ required fields? left\s*$")).first
         self.wait_visible(fields_left)
         self.wait_visible(esign.locator("[data-qa-ref='page-0']"))
+        # wait until the fields are drawn on the document (the counter shows up before them)
+        self.wait_visible(esign.locator(f"[data-qa-ref^='field-']{REQUIRED}").first)
+        self.page.wait_for_timeout(1500)
 
         # skip[kind] = how many fields of that kind did NOT change the counter when clicked
         # (already filled / not really required) -> next time click the following one instead
@@ -89,7 +98,9 @@ class SignIcaPage(BasePage):
         for _ in range(40):
             if fields_left.count() == 0 or not fields_left.is_visible():
                 break                                   # all mandatory fields done
-            before = fields_left.inner_text()
+            before = fields_left.inner_text().strip()
+            if before.startswith("0 "):
+                break
             print("Mandatory fields left:", before)
 
             if initials.count() > skip["initials"]:
@@ -100,7 +111,7 @@ class SignIcaPage(BasePage):
                 kind, field = "checkbox", checkboxes.nth(skip["checkbox"])
             else:
                 # remaining fields are on pages not loaded yet -> jump to the next field
-                self.click(esign.locator("[data-qa-ref='button-next']"))
+                self.click(esign.locator(NEXT_BUTTON).first)
                 self.page.wait_for_timeout(1500)
                 stuck += 1
                 if stuck >= 15:
@@ -117,7 +128,7 @@ class SignIcaPage(BasePage):
                 self.type_signature(user["full_name"], insert_everywhere=False)
             self.page.wait_for_timeout(1000)
 
-            if fields_left.count() and fields_left.is_visible() and fields_left.inner_text() == before:
+            if fields_left.count() and fields_left.is_visible() and fields_left.inner_text().strip() == before:
                 # nothing changed: close any 'Edit / Clear' menu and try the next field
                 self.page.keyboard.press("Escape")
                 skip[kind] += 1

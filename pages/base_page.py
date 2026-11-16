@@ -14,7 +14,7 @@ class BasePage:
 
     # ---------- open / wait for pages ----------
     def open(self, path):
-        self.page.goto(BASE_URL + path)
+        self.page.goto(BASE_URL + path, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
 
     def wait_for_page(self, path, timeout=NAV_TIMEOUT):
         self.page.wait_for_url(f"**{path}**", timeout=timeout)
@@ -90,9 +90,17 @@ class BasePage:
         self.page.keyboard.press("ArrowDown")
 
     def select_dropdown(self, label, option, close_after=False):
-        """Pick the option with exactly this text."""
-        self.open_dropdown(label)
-        self.click(self.page.get_by_role("option", name=option, exact=True))
+        """Pick the option with exactly this text (opens the list again if it did not open)."""
+        choice = self.page.get_by_role("option", name=option, exact=True)
+        for attempt in range(1, 4):
+            self.open_dropdown(label)
+            try:
+                self.wait_visible(choice, 10_000)
+                break
+            except Exception:
+                print(f"Dropdown '{label}' did not open (attempt {attempt}), trying again")
+                self.dropdown(label).click()
+        self.click(choice)
         if close_after:
             self.page.keyboard.press("Escape")
 
