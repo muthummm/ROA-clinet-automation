@@ -18,6 +18,7 @@ tests/
    regression.py      regression test cases
                       test_01_onboarding = agent onboarding + admin approval
 created_users.csv  list of every user the test created (with PASSED / FAILED)
+dashboard.py       builds reports/dashboard.html after each run (no need to touch)
 conftest.py        browser setup, steps, --users, result summary (no need to touch)
 pytest.ini         pytest options (no need to touch)
 reports/           screenshot when a test fails
@@ -42,6 +43,12 @@ Test case 1 - Onboarding (user 2) ........ FAILED at 'Sign ICA'  (2m 54s)
       user: Easton Weaver | easton.weaver@mailinator.com | 6465550169
 ```
 Every created user is added to `created_users.csv` (open it in Excel).
+
+### Dashboard
+After every run `reports/dashboard.html` is created and opens in your browser:
+pass/fail cards, time per step, trend of the last 30 runs, every run with its error and
+a screenshot when it failed. History is kept in `reports/history.json`
+(turn off auto-open with `OPEN_DASHBOARD = False` in `config.py`).
 
 ## Add something new (3 steps)
 

@@ -8,6 +8,9 @@ BASE_URL = "https://roa-onboarding-staging.vercel.app"
 # Run without a browser window:  $env:HEADLESS="1"; pytest
 HEADLESS = os.getenv("HEADLESS", "0") == "1"
 
+# Open reports/dashboard.html in the browser after every run (False = only create the file)
+OPEN_DASHBOARD = True
+
 # Wait times in milliseconds (1000 = 1 second)
 DEFAULT_TIMEOUT = 40_000      # wait for an element to be visible
 NAV_TIMEOUT = 60_000          # wait for the next page to open
