@@ -26,10 +26,11 @@ class SignIcaPage(BasePage):
         self.click(esign.locator(AGREE_BUTTON).or_(esign.get_by_role("button", name="I agree")).first)
         self.wait_visible(esign.get_by_text("Thanks for submitting your document!"), SLOW_TIMEOUT)
 
-        # the app moves to the next page by itself; reload if it does not
+        # the app should move to the next page by itself - often it does not, so reload after 8s
         try:
-            self.wait_for_page("/customize-agent-tools", timeout=30_000)
+            self.wait_for_page("/customize-agent-tools", timeout=8_000)
         except Exception:
+            print("Still on Sign ICA after submitting, reloading page")
             self.page.reload()
             self.wait_for_page("/customize-agent-tools", timeout=SLOW_TIMEOUT)
 
@@ -46,27 +47,45 @@ class SignIcaPage(BasePage):
 
         for attempt in range(1, attempts + 1):
             self.wait_visible(button)
-            self.page.wait_for_timeout(3000)               # let the page finish loading
-            if frame.count() == 0:
-                self.click(button)
-            try:
-                self.wait_visible(ok_button, 45_000)        # e-sign document loaded
-                assert frame.count() == 1, "More than one e-sign window is open"
-                return
-            except AssertionError:
-                raise
-            except Exception:
-                print(f"E-sign window did not load (attempt {attempt}), reloading page")
-                self.page.reload()
+            self.wait_until_ready(3000)                     # let the page finish loading
+            for _ in range(50):                             # check every 0.5s, max 25s
+                if ok_button.count() and ok_button.is_visible():
+                    assert frame.count() == 1, "More than one e-sign window is open"
+                    return                                  # e-sign document loaded
+                if frame.count() == 0 and button.count() and button.is_visible():
+                    # no e-sign window (not opened yet, or a page refresh closed it) -> click again
+                    try:
+                        button.click(timeout=5_000)
+                    except Exception:
+                        pass
+                self.page.wait_for_timeout(500)
+            print(f"E-sign window did not load (attempt {attempt}), reloading page")
+            self.page.reload()
         raise AssertionError("E-sign window never loaded")
 
-    def type_signature(self, text, insert_everywhere):
+    def counter_changed(self, counter, before):
+        return counter.count() == 0 or not counter.is_visible() or counter.inner_text().strip() != before
+
+    def wait_counter_change(self, counter, before, timeout_ms=3000):
+        """Wait until the 'required fields left' counter changes (checks every 0.2s)."""
+        for _ in range(timeout_ms // 200):
+            if self.counter_changed(counter, before):
+                return True
+            self.page.wait_for_timeout(200)
+        return False
+
+    def type_signature(self, text, insert_everywhere, counter, before):
         esign = self.page.frame_locator(ESIGN_FRAME)
         type_tab = esign.get_by_role("tab", name="Type")
-        try:
-            self.wait_visible(type_tab, 8_000)
-        except Exception:
-            return                      # signature already remembered
+        # either the signing window opens, or the saved signature is used straight away
+        for _ in range(40):                                 # max 8s
+            if type_tab.count() and type_tab.is_visible():
+                break
+            if self.counter_changed(counter, before):
+                return                                      # signature already remembered
+            self.page.wait_for_timeout(200)
+        else:
+            return
         type_tab.click()
         self.fill(esign.locator("input[data-qa-ref='signing-modal--type-in-field']"), text)
         if insert_everywhere:
@@ -89,7 +108,7 @@ class SignIcaPage(BasePage):
         self.wait_visible(esign.locator("[data-qa-ref='page-0']"))
         # wait until the fields are drawn on the document (the counter shows up before them)
         self.wait_visible(esign.locator(f"[data-qa-ref^='field-']{REQUIRED}").first)
-        self.page.wait_for_timeout(1500)
+        self.page.wait_for_timeout(500)
 
         # skip[kind] = how many fields of that kind did NOT change the counter when clicked
         # (already filled / not really required) -> next time click the following one instead
@@ -121,14 +140,14 @@ class SignIcaPage(BasePage):
             field.scroll_into_view_if_needed()
             self.click(field)
             if kind == "initials":
-                self.type_signature(user["initials"], insert_everywhere=True)
-                # 'Insert everywhere' updates the other pages a moment later
-                self.page.wait_for_timeout(1500)
+                self.type_signature(user["initials"], True, fields_left, before)
             elif kind == "signature":
-                self.type_signature(user["full_name"], insert_everywhere=False)
-            self.page.wait_for_timeout(1000)
+                self.type_signature(user["full_name"], False, fields_left, before)
+            changed = self.wait_counter_change(fields_left, before)
+            if changed and kind == "initials":
+                self.page.wait_for_timeout(800)     # 'Insert everywhere' fills the other pages a moment later
 
-            if fields_left.count() and fields_left.is_visible() and fields_left.inner_text().strip() == before:
+            if not changed:
                 # nothing changed: close any 'Edit / Clear' menu and try the next field
                 self.page.keyboard.press("Escape")
                 skip[kind] += 1

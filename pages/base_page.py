@@ -20,6 +20,13 @@ class BasePage:
         self.page.wait_for_url(f"**{path}**", timeout=timeout)
         print("On page:", self.page.url)
 
+    def wait_until_ready(self, max_ms=1500):
+        """Wait until the page stops loading data (usually well under 1s), but never longer than max_ms."""
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=max_ms)
+        except Exception:
+            pass
+
     def wait_for_url_change(self, old_url, timeout=NAV_TIMEOUT):
         self.page.wait_for_url(lambda url: url != old_url, timeout=timeout)
 
@@ -66,13 +73,14 @@ class BasePage:
     def fill_and_next(self, fill_form, attempts=3):
         """Fill the form, click Next. Some forms reset themselves after loading,
         so if the page did not change we fill it again (max 3 times)."""
+        # forms load their saved data ~1s after the page opens and would wipe what we type
         self.page.wait_for_timeout(1500)
         for attempt in range(1, attempts + 1):
             fill_form()
             old_url = self.page.url
             self.click(self.next_button())
             try:
-                self.wait_for_url_change(old_url, timeout=15_000)
+                self.wait_for_url_change(old_url, timeout=8_000)
                 return
             except Exception:
                 print(f"Form not submitted (attempt {attempt}), filling again")
