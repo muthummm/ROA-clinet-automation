@@ -53,9 +53,10 @@ class RoaApplicationPage(BasePage):
 
         def fill_form():
             self.fill(self.input("address_line_1"), ADDRESS["line1"])
-            self.fill(self.input("city"), ADDRESS["city"])
+            # City and Zip Code are dropdowns that open only after a State is picked
             self.select_dropdown("State", ADDRESS["state"])
-            self.fill(self.input("zipcode"), ADDRESS["zip"])
+            self.select_dropdown_by_typing("City", ADDRESS["city"])
+            self.select_dropdown_by_typing("Zip Code", ADDRESS["zip"])
         self.fill_and_next(fill_form)
 
     def emergency_contact(self):

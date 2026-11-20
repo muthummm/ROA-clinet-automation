@@ -112,6 +112,16 @@ class BasePage:
         if close_after:
             self.page.keyboard.press("Escape")
 
+    def select_dropdown_by_typing(self, label, option):
+        """Long lists (City, Zip Code): type to filter, then pick the option."""
+        box = self.wait_visible(self.dropdown(label))
+        self.page.wait_for_function("el => !el.disabled", arg=box.element_handle(), timeout=DEFAULT_TIMEOUT)
+        box.click()
+        box.press_sequentially(option, delay=30)
+        exact = self.page.get_by_role("option", name=option, exact=True)
+        partial = self.page.locator("[role='option']", has_text=option)
+        self.click(exact.or_(partial).first)
+
     def select_dropdown_containing(self, label, text):
         """Multi-select: pick the option that contains this text (skip if already picked)."""
         self.open_dropdown(label)

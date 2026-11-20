@@ -18,9 +18,10 @@ class TaxInformationPage(BasePage):
             self.type_slowly(ssn, TAX["ssn"])
             self.select_dropdown("Tax Classification", TAX["classification"])
             self.fill(self.input("tax_information.address_line_1"), ADDRESS["line1"])
-            self.fill(self.input("tax_information.city"), ADDRESS["city"])
+            # City and Zip Code are dropdowns that open only after a State is picked
             self.select_dropdown("State", ADDRESS["state"])
-            self.fill(self.input("tax_information.zipcode"), ADDRESS["zip"])
+            self.select_dropdown_by_typing("City", ADDRESS["city"])
+            self.select_dropdown_by_typing("Zip Code", ADDRESS["zip"])
         self.fill_and_next(fill_w9_form)
 
         self.wait_for_page("/tax-information/step-3")
