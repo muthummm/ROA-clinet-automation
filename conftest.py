@@ -181,8 +181,8 @@ def pytest_terminal_summary(terminalreporter):
 
 
 def open_dashboard(path):
-    """Open the dashboard in its own Chromium window.
-    It is a separate program, so it stays open after pytest ends - you close it yourself."""
+    """Open the dashboard in its own Chromium window and close it again after 5 seconds.
+    (The file stays in reports/dashboard.html - open it again any time.)"""
     url = pathlib.Path(path).as_uri()
     browsers = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright")
     chrome = sorted(glob.glob(os.path.join(browsers, "chromium-*", "chrome-win*", "chrome.exe")))
@@ -190,12 +190,15 @@ def open_dashboard(path):
         webbrowser.open(url)                     # no Playwright Chromium found -> use the normal browser
         return
     profile = os.path.join(os.path.dirname(path), ".dashboard-browser")
-    subprocess.Popen(
+    window = subprocess.Popen(
         [chrome[-1], f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
          "--new-window", "--start-maximized", url],
         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
     )
+    time.sleep(5)                                # show the dashboard for 5 seconds
+    subprocess.run(["taskkill", "/T", "/F", "/PID", str(window.pid)],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def update_dashboard(pytest_config):

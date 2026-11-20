@@ -53,6 +53,7 @@ class RoaApplicationPage(BasePage):
 
         def fill_form():
             self.fill(self.input("address_line_1"), ADDRESS["line1"])
+            self.fill(self.input("address_line_2"), ADDRESS["line2"])     # server now requires it
             # City and Zip Code are dropdowns that open only after a State is picked
             self.select_dropdown("State", ADDRESS["state"])
             self.select_dropdown_by_typing("City", ADDRESS["city"])

@@ -6,7 +6,7 @@ from pathlib import Path
 from config import EMAIL_DOMAIN
 
 # ---------- fixed values ----------
-ADDRESS = {"line1": "123 Main Street", "city": "Birmingham", "state": "Alabama", "zip": "35203"}
+ADDRESS = {"line1": "123 Main Street", "line2": "Suite 100", "city": "Birmingham", "state": "Alabama", "zip": "35203"}
 PRIMARY_STATE = "Alabama"
 DATE_OF_BIRTH = "Choose Sunday, October 31st, 2010"      # calendar day label
 
