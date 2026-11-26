@@ -16,12 +16,17 @@ pages/             one file per screen of the website
    admin_agent_page.py   admin: find agent > Transfer now > Onboard Agent > check Active
 tests/
    regression.py      regression test cases
-                      test_01_onboarding = agent onboarding + admin approval
+                      test_01 = 'Onboarding without Sponsor and Team' (happy flow), one block per test case
+                      (newly licensed agent without license number, no sponsor, no team)
+test_cases/
+   agent_onboarding_happy_flow.csv   the test case sheet (TC ID, Stage, Scenario, Expected, Priority)
+testcase_tracker.py  links each `with tc("TC_AO_001"):` block to a row of the sheet
+test_data/           files the tests upload (license_document.pdf)
 created_users.csv  list of every user the test created (with PASSED / FAILED)
 dashboard.py       builds reports/dashboard.html after each run (no need to touch)
 conftest.py        browser setup, steps, --users, result summary (no need to touch)
 pytest.ini         pytest options (no need to touch)
-reports/           screenshot when a test fails
+reports/           dashboard.html, testcase_results.csv, screenshot when a test fails
 ```
 
 ## Run
@@ -44,9 +49,26 @@ Test case 1 - Onboarding (user 2) ........ FAILED at 'Sign ICA'  (2m 54s)
 ```
 Every created user is added to `created_users.csv` (open it in Excel).
 
+### Test cases
+Every row of `test_cases/agent_onboarding_happy_flow.csv` is checked in `tests/regression.py`:
+```python
+with tc("TC_AO_025"):
+    tc.see("Congrats", user["full_name"], "Continue: Tax Information")   # texts on screen
+    tc.progress(70)                                                        # progress circle %
+    tc.check(a == b, "what is wrong")                                     # any other check
+```
+- A failed check marks the test case **FAILED** and the run continues.
+- If an action fails (button missing, page did not open) the run stops and every test case after it is **BLOCKED**.
+- **SKIPPED** = not automated (TC_AO_003: staging uses a fixed OTP, the inbox is not read).
+
+Results per test case: on the dashboard and in `reports/testcase_results.csv`
+(same columns as the sheet, with *Actual Result* and *Status* filled in - open it in Excel).
+
+Debug a screen: `$env:TC_DUMP="1"; pytest` saves a screenshot + page text/HTML of every test case to `reports/tc_dump/`.
+
 ### Dashboard
 After every run `reports/dashboard.html` is created and opens in your browser:
-pass/fail cards, time per step, trend of the last 30 runs, every run with its error and
+test case results (click Passed / Failed / Blocked / Skipped to filter, results per stage), pass/fail cards, time per step, trend of the last 30 runs, every run with its error and
 a screenshot when it failed. History is kept in `reports/history.json`
 (turn off auto-open with `OPEN_DASHBOARD = False` in `config.py`).
 

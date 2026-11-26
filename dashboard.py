@@ -137,10 +137,12 @@ def history_table(history):
     for r in reversed(history):
         user = r.get("user") or {}
         shot = f'<a href="{escape(r["screenshot"])}" target="_blank">view</a>' if r.get("screenshot") else ""
+        cases = r.get("testcases") or []
+        tcs = f"{tc_counts(cases)['PASSED']}/{len(cases)}" if cases else ""
         rows += f"""<tr data-outcome="{r['outcome']}">
               <td>{escape(r['date'])}</td><td>{escape(r['test'])}</td>
               <td>{escape(user.get('full_name', ''))}</td><td>{escape(user.get('email', ''))}</td>
-              <td>{badge(r['outcome'])}</td><td class="num">{mins(r['duration'])}</td>
+              <td>{badge(r['outcome'])}</td><td class="num">{tcs}</td><td class="num">{mins(r['duration'])}</td>
               <td>{escape(r.get('failed_step') or '')}</td>
               <td class="err" title="{escape(r.get('error') or '')}">{escape((r.get('error') or '')[:80])}</td>
               <td>{shot}</td></tr>"""
@@ -152,9 +154,111 @@ def history_table(history):
           <button data-f="failed">Failed</button>
         </div></div>
       <div class="table-wrap"><table class="history"><thead><tr>
-        <th>Date</th><th>Test case</th><th>User</th><th>Email</th><th>Result</th><th>Time</th>
+        <th>Date</th><th>Test case</th><th>User</th><th>Email</th><th>Result</th><th>TCs passed</th><th>Time</th>
         <th>Failed step</th><th>Error</th><th>Screenshot</th></tr></thead>
         <tbody>{rows}</tbody></table></div></div>"""
+
+
+# ---------- test cases (from the test case sheet) ----------
+STATUSES = ["PASSED", "FAILED", "BLOCKED", "SKIPPED"]
+
+
+def tc_badge(status):
+    return f'<span class="badge tc-{status.lower().replace(" ", "")}">{escape(status)}</span>'
+
+
+def tc_counts(cases):
+    counts = {s: 0 for s in STATUSES}
+    for c in cases:
+        counts[c["status"]] = counts.get(c["status"], 0) + 1
+    return counts
+
+
+def subcase_list(case):
+    """Every step (action) and check of one test case, in the order they ran."""
+    items = case.get("checks") or []
+    if not items:
+        why = "Not executed" if case["status"] in ("BLOCKED", "NOT RUN") else "No sub-cases recorded"
+        return f'<div class="muted">{why}</div>'
+    icons = {"PASSED": "&#10004;", "FAILED": "&#10008;", "INFO": "&#8505;", "SKIPPED": "&#8212;"}
+    kinds = {"step": "Step", "check": "Check", "info": "Info"}
+    lis = ""
+    for i, k in enumerate(items, 1):
+        detail = f'<span class="sub-detail">{escape(k["detail"])}</span>' if k.get("detail") else ""
+        secs = f'<span class="muted">{k["seconds"]}s</span>' if k.get("kind") == "step" else ""
+        lis += (f'<li class="sc sc-{k["status"].lower()}"><span class="sc-icon">{icons.get(k["status"], "")}</span>'
+                f'<span class="sc-kind">{kinds.get(k["kind"], k["kind"])}</span>'
+                f'<span class="sc-name">{i}. {escape(k["name"])} {detail}</span>{secs}</li>')
+    return f'<ul class="subcases">{lis}</ul>'
+
+
+def testcase_section(latest):
+    blocks = []
+    for r in latest:
+        cases = r.get("testcases") or []
+        if not cases:
+            continue
+        counts = tc_counts(cases)
+        total = len(cases)
+        executed = total - counts["SKIPPED"]
+        rate = f"{counts['PASSED'] / executed * 100:.0f}%" if executed else "-"
+        cards = "".join(
+            f'<button class="tc-card" data-s="{s}"><span class="label">{s.title()}</span>'
+            f'<span class="value tc-{s.lower()}-text">{counts[s]}</span></button>' for s in STATUSES)
+        legend = "".join(f'<span class="dot tc-{s.lower()}-bg"></span>{s.title()} ' for s in STATUSES)
+
+        # per stage: stacked bar of statuses
+        stages = {}
+        for c in cases:
+            stages.setdefault(c["stage"], []).append(c)
+        stage_rows = ""
+        for stage, items in stages.items():
+            sc = tc_counts(items)
+            segs = "".join(f'<span class="seg tc-{s.lower()}-bg" style="flex:{sc[s]}" title="{s}: {sc[s]}"></span>'
+                           for s in STATUSES if sc[s])
+            stage_rows += (f'<tr><td>{escape(stage)}</td><td><div class="stack">{segs}</div></td>'
+                           f'<td class="num">{sc["PASSED"]}/{len(items)}</td></tr>')
+
+        rows = ""
+        for c in cases:
+            checks = [k for k in c.get("checks", []) if k["status"] in ("PASSED", "FAILED")]
+            ok = sum(1 for k in checks if k["status"] == "PASSED")
+            score = f'<span class="{"tc-failed-text" if ok < len(checks) else "muted"}">{ok}/{len(checks)}</span>' \
+                if checks else '<span class="muted">-</span>'
+            rows += f"""<tr data-s="{c['status']}" class="tc-row">
+                <td class="nowrap"><button class="toggle" aria-expanded="false" title="Show sub-cases">&#9656;</button>
+                    <b>{escape(c['id'])}</b></td>
+                <td class="nowrap muted">{escape(c['stage'].split(' - ')[0])}</td>
+                <td><div>{escape(c['scenario'])}</div></td>
+                <td class="nowrap">{escape(c['priority'])}</td>
+                <td>{tc_badge(c['status'])}</td>
+                <td class="num">{score}</td>
+                <td class="actual">{escape(c['actual'])}</td>
+                <td class="num">{c['seconds']}s</td></tr>
+              <tr class="sub" data-s="{c['status']}" hidden><td></td><td colspan="7">
+                <div class="expected"><b>Expected:</b> {escape(c['expected'])}</div>
+                {subcase_list(c)}</td></tr>"""
+        user = r.get("user") or {}
+        blocks.append(f"""
+        <div class="panel">
+          <div class="panel-head"><b>Test cases &ndash; {escape(r['test'])}</b>
+            <div class="muted">{escape(r['date'])} &middot; {escape(user.get('email', ''))} &middot;
+              pass rate {rate} of executed</div></div>
+          <div class="tc-tools"><button class="expand-all">Expand all</button>
+            <button class="collapse-all">Collapse all</button>
+            <span class="muted">{sum(len(c.get("checks", [])) for c in cases)} sub-cases (steps + checks)</span></div>
+          <div class="tc-cards">{cards}<button class="tc-card active" data-s="all"><span class="label">All</span>
+            <span class="value">{total}</span></button></div>
+          <div class="grid-tc">
+            <div><table class="steps"><thead><tr><th>Stage</th><th></th><th>Passed</th></tr></thead>
+              <tbody>{stage_rows}</tbody></table>
+              <div class="legend">{legend}</div></div>
+            <div class="table-wrap"><table class="tc-table"><thead><tr><th>TC ID</th><th>Stage</th><th>Scenario</th>
+              <th>Priority</th><th>Status</th><th>Sub-cases</th><th>Actual result</th><th>Time</th></tr></thead>
+              <tbody>{rows}</tbody></table></div>
+          </div>
+        </div>""")
+    return "".join(blocks)
 
 
 CSS = """
@@ -207,12 +311,73 @@ table.steps td:nth-child(2){width:45%}
 .history td{white-space:nowrap}
 .history td.err{white-space:normal;min-width:220px;color:var(--muted);font-size:12px}
 a{color:var(--accent)}
+:root{--amber:#b7791f;--amber-soft:#fdf1dc;--grey:#8a93a6;--grey-soft:#eceff4}
+@media (prefers-color-scheme:dark){:root{--amber:#f0b44c;--amber-soft:#3a2d14;--grey:#9aa3b5;--grey-soft:#2a3240}}
+.badge.tc-passed{background:var(--green-soft);color:var(--green)}
+.badge.tc-failed{background:var(--red-soft);color:var(--red)}
+.badge.tc-blocked{background:var(--amber-soft);color:var(--amber)}
+.badge.tc-skipped,.badge.tc-notrun{background:var(--grey-soft);color:var(--grey)}
+.tc-passed-text{color:var(--green)}.tc-failed-text{color:var(--red)}.tc-blocked-text{color:var(--amber)}
+.tc-skipped-text{color:var(--grey)}
+.tc-passed-bg{background:var(--green)}.tc-failed-bg{background:var(--red)}.tc-blocked-bg{background:var(--amber)}
+.tc-skipped-bg{background:var(--grey)}
+.tc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px}
+.tc-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1px solid var(--line);
+         background:var(--card);color:var(--text);border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit}
+.tc-card .value{font-size:24px;font-weight:700}
+.tc-card.active{outline:2px solid var(--accent)}
+.grid-tc{display:grid;grid-template-columns:minmax(260px,1fr) 3fr;gap:18px;align-items:start}
+@media (max-width:1100px){.grid-tc{grid-template-columns:1fr}}
+.stack{display:flex;height:12px;border-radius:4px;overflow:hidden;background:var(--track)}
+.seg{display:block;height:100%}
+.tc-table td{vertical-align:top}
+.tc-table td.actual{min-width:220px;max-width:420px;font-size:12.5px;word-break:break-word}
+.tc-table details{margin-top:2px}.tc-table summary{cursor:pointer;color:var(--muted);font-size:12px}
+.nowrap{white-space:nowrap}
+.toggle{border:0;background:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 4px 0 0;
+        transition:transform .15s}
+.toggle[aria-expanded="true"]{transform:rotate(90deg)}
+tr.tc-row{cursor:pointer}
+tr.sub td{background:var(--bg);border-bottom:1px solid var(--line);padding:8px 10px 12px}
+.expected{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.subcases{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.sc{display:grid;grid-template-columns:18px 48px 1fr auto;gap:8px;align-items:baseline;font-size:13px;
+    padding:3px 6px;border-radius:6px}
+.sc-failed{background:var(--red-soft)}
+.sc-icon{font-weight:700;text-align:center}
+.sc-passed .sc-icon{color:var(--green)}.sc-failed .sc-icon{color:var(--red)}
+.sc-info .sc-icon,.sc-skipped .sc-icon{color:var(--grey)}
+.sc-kind{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.sub-detail{color:var(--red);margin-left:6px;font-size:12px}
+.sc-info .sc-name{color:var(--muted)}
+.tc-tools{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.tc-tools button{border:1px solid var(--line);background:var(--card);color:var(--text);padding:4px 12px;
+                 border-radius:16px;cursor:pointer;font:inherit;font-size:12.5px}
 .filters button{border:1px solid var(--line);background:var(--card);color:var(--text);padding:4px 12px;
                 border-radius:16px;cursor:pointer;font:inherit;font-size:12.5px}
 .filters button.active{background:var(--accent);color:var(--card);border-color:var(--accent)}
 """
 
 JS = """
+document.querySelectorAll('.tc-card').forEach(b => b.addEventListener('click', () => {
+  const panel = b.closest('.panel');
+  panel.querySelectorAll('.tc-card').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  panel.querySelectorAll('table.tc-table tbody tr').forEach(tr => {
+    tr.style.display = (b.dataset.s === 'all' || tr.dataset.s === b.dataset.s) ? '' : 'none';
+  });
+}));
+function setOpen(row, open) {
+  row.nextElementSibling.hidden = !open;
+  row.querySelector('.toggle').setAttribute('aria-expanded', open);
+}
+document.querySelectorAll('tr.tc-row').forEach(row => {
+  row.addEventListener('click', () => setOpen(row, row.nextElementSibling.hidden));
+  if (row.dataset.s === 'FAILED') setOpen(row, true);          // failed test cases start open
+});
+document.querySelectorAll('.expand-all, .collapse-all').forEach(b => b.addEventListener('click', () => {
+  b.closest('.panel').querySelectorAll('tr.tc-row').forEach(r => setOpen(r, b.classList.contains('expand-all')));
+}));
 document.querySelectorAll('.filters button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.filters button').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
@@ -236,6 +401,7 @@ def build_dashboard(history, latest, path):
 </header>
 <main>
   {kpi_cards(history, latest)}
+  {testcase_section(latest)}
   <div class="grid2">
     <div><h3>Latest run</h3>{latest_run_section(latest)}</div>
     <div style="display:grid;gap:16px;align-content:start"><h3 style="margin-bottom:-8px">Trends</h3>

@@ -4,6 +4,7 @@
 # Every action first WAITS until the element is visible.
 # ============================================================
 import datetime as dt
+import time
 
 from config import BASE_URL, DEFAULT_TIMEOUT, NAV_TIMEOUT, OTP
 
@@ -28,7 +29,7 @@ class BasePage:
             pass
 
     def wait_for_url_change(self, old_url, timeout=NAV_TIMEOUT):
-        self.page.wait_for_url(lambda url: url != old_url, timeout=timeout)
+        self.page.wait_for_url(lambda url: url != old_url, timeout=timeout, wait_until="commit")
 
     # ---------- click / type ----------
     def wait_visible(self, locator, timeout=DEFAULT_TIMEOUT):
@@ -70,21 +71,43 @@ class BasePage:
         self.click(self.next_button())
         self.wait_for_url_change(old_url)
 
+    def wait_while_saving(self, start_url, max_ms=45_000):
+        """After clicking Next: True when the page moved on within max_ms.
+        A slow server first saves the form, then reloads the stage list, and only then opens the next
+        page (seen: 15s+), so the 'Next' spinner stopping does not mean the page will not change."""
+        try:
+            self.wait_for_url_change(start_url, timeout=max_ms)
+            return True
+        except Exception:
+            return False
+
     def fill_and_next(self, fill_form, attempts=3):
         """Fill the form, click Next. Some forms reset themselves after loading,
         so if the page did not change we fill it again (max 3 times)."""
-        # forms load their saved data ~1s after the page opens and would wipe what we type
-        self.page.wait_for_timeout(1500)
+        # forms load their saved data after the page opens (slow server: several seconds) and would wipe
+        # what we type -> wait until the page stops loading data, plus a short moment for it to re-render
+        self.wait_until_ready(15_000)
+        self.page.wait_for_timeout(700)
+        start_url = self.page.url
         for attempt in range(1, attempts + 1):
-            fill_form()
-            old_url = self.page.url
-            self.click(self.next_button())
+            if self.page.url != start_url:
+                return                                  # an earlier (slow) save went through
             try:
-                self.wait_for_url_change(old_url, timeout=8_000)
+                fill_form()
+                self.click(self.next_button())
+            except Exception as error:
+                if self.page.url != start_url:
+                    return                              # page moved on while we were filling again
+                if attempt == attempts:
+                    raise
+                print(f"Filling the form failed (attempt {attempt}): {str(error).splitlines()[0][:120]}")
+                self.page.keyboard.press("Escape")
+                self.wait_until_ready(10_000)
+                continue
+            # a slow server can take a while to save -> wait while 'Next' shows its loading spinner
+            if self.wait_while_saving(start_url):
                 return
-            except Exception:
-                print(f"Form not submitted (attempt {attempt}), filling again")
-                self.page.wait_for_timeout(2000)
+            print(f"Form not submitted (attempt {attempt}), filling again")
         raise AssertionError(f"Could not submit form on {self.page.url}")
 
     # ---------- dropdowns / radio buttons ----------
@@ -116,7 +139,8 @@ class BasePage:
         """Long lists (City, Zip Code): type to filter, then pick the option."""
         box = self.wait_visible(self.dropdown(label))
         self.page.wait_for_function("el => !el.disabled", arg=box.element_handle(), timeout=DEFAULT_TIMEOUT)
-        box.click()
+        self.page.keyboard.press("Escape")           # close any list still open (it covers this box)
+        box.focus()                                  # focus, not click: a click can be blocked by an overlay
         box.press_sequentially(option, delay=30)
         exact = self.page.get_by_role("option", name=option, exact=True)
         partial = self.page.locator("[role='option']", has_text=option)
@@ -139,6 +163,28 @@ class BasePage:
 
     def choose_radio(self, text):
         self.click(self.page.locator(f"//label[.//p[normalize-space()='{text}']]").first)
+
+    def click_and_catch(self, locator, wait_ms=8_000):
+        """Click something that may open a new tab, start a download or change the page.
+        Returns {"page": new_tab} / {"download": download} / {"navigated": True} / {} (nothing happened)."""
+        caught = {}
+        on_page = lambda p: caught.setdefault("page", p)
+        on_download = lambda d: caught.setdefault("download", d)
+        self.page.context.on("page", on_page)
+        self.page.on("download", on_download)
+        old_url = self.page.url
+        try:
+            self.click(locator)
+            end = time.time() + wait_ms / 1000
+            while time.time() < end and not caught:
+                if self.page.url != old_url:
+                    caught["navigated"] = True
+                    break
+                self.page.wait_for_timeout(200)
+        finally:
+            self.page.context.remove_listener("page", on_page)
+            self.page.remove_listener("download", on_download)
+        return caught
 
     # ---------- popups ----------
     def confirm_popup(self, timeout=DEFAULT_TIMEOUT):

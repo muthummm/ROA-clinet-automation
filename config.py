@@ -12,9 +12,9 @@ HEADLESS = os.getenv("HEADLESS", "0") == "1"
 OPEN_DASHBOARD = True
 
 # Wait times in milliseconds (1000 = 1 second)
-DEFAULT_TIMEOUT = 40_000      # wait for an element to be visible
+DEFAULT_TIMEOUT = 10_000      # wait for an element to be visible (max 10 seconds)
 NAV_TIMEOUT = 60_000          # wait for the next page to open
-SLOW_TIMEOUT = 90_000         # payment / e-sign
+SLOW_TIMEOUT = 90_000         # page change after payment
 
 OTP = "112244"
 PASSWORD = "1999@#$onboard"
