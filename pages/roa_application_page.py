@@ -1,14 +1,18 @@
+import datetime as dt
 import uuid
 
 from config import DEFAULT_TIMEOUT
-from dummy_data import ADDRESS, BOARDS, DATE_OF_BIRTH, EMERGENCY_CONTACT, LICENSE, PROFESSIONAL
+from dummy_data import (ADDRESS, BOARDS, DATE_OF_BIRTH, EMERGENCY_CONTACT, LICENSE, NEW_LICENSE, PREFERRED_NAME,
+                        PROFESSIONAL)
 from pages.base_page import BasePage
+
+NEWLY_LICENSED_NO_NUMBER = "I am a newly licensed agent (I do not have my license number)"
 
 
 class RoaApplicationPage(BasePage):
 
     def complete(self, user):
-        """Fill every page of the ROA Application, in order."""
+        """Fill every page of the ROA Application (agent with an active license), in order."""
         self.about_yourself(user)
         self.residential_address()
         self.emergency_contact()
@@ -23,9 +27,10 @@ class RoaApplicationPage(BasePage):
         self.answer_radio("/part-of-team", "No")
         self.success_page()
 
-    def about_yourself(self, user):
+    # ---------- personal details ----------
+    def wait_for_prefilled_details(self):
+        """The form loads First Name / Phone from sign up a moment after the page opens."""
         self.wait_for_page("/roa-application/about-yourself")
-        # wait until the form has loaded the saved First Name / Phone
         self.page.wait_for_function(
             """() => {
                 const fn = document.querySelector("input[name='first_name']");
@@ -35,8 +40,11 @@ class RoaApplicationPage(BasePage):
             timeout=DEFAULT_TIMEOUT,
         )
 
+    def about_yourself(self, user, preferred_name=PREFERRED_NAME):
+        self.wait_for_prefilled_details()
+
         def fill_form():
-            self.fill(self.input("preferred_name"), user["full_name"])
+            self.fill(self.input("preferred_name"), preferred_name)
             date_box = self.page.locator("input[placeholder='MM/DD/YYYY']")
             try:
                 date_box.click(timeout=10_000)
@@ -53,7 +61,7 @@ class RoaApplicationPage(BasePage):
 
         def fill_form():
             self.fill(self.input("address_line_1"), ADDRESS["line1"])
-            self.fill(self.input("address_line_2"), ADDRESS["line2"])     # server now requires it
+            self.fill(self.input("address_line_2"), ADDRESS["line2"])
             # City and Zip Code are dropdowns that open only after a State is picked
             self.select_dropdown("State", ADDRESS["state"])
             self.select_dropdown_by_typing("City", ADDRESS["city"])
@@ -75,6 +83,7 @@ class RoaApplicationPage(BasePage):
         self.wait_for_page(path)
         self.fill_and_next(lambda: self.choose_radio(answer))
 
+    # ---------- license: agent with an active license ----------
     def license_details(self):
         self.wait_for_page("/licensed-details")
         license_number = f"TEST-{uuid.uuid4().hex[:12].upper()}"
@@ -89,6 +98,43 @@ class RoaApplicationPage(BasePage):
             self.pick_date(dates.nth(1), LICENSE["transfer_days_from_today"])
         self.fill_and_next(fill_form)
 
+    # ---------- license: newly licensed agent WITHOUT a license number ----------
+    def issue_date_box(self):
+        return self.page.locator("input[placeholder='Select Date']")
+
+    def newly_licensed_without_number(self, days_from_today=NEW_LICENSE["issue_days_from_today"]):
+        """License Status page: pick the option, then the Expected License Issuance Date.
+        Returns the date as shown in the box (MM/DD/YYYY)."""
+        self.wait_for_page("/license-status")
+        date = (dt.date.today() + dt.timedelta(days=days_from_today)).strftime("%m/%d/%Y")
+
+        def fill_form():
+            self.choose_radio(NEWLY_LICENSED_NO_NUMBER)
+            self.pick_date(self.issue_date_box(), days_from_today)
+        self.fill_and_next(fill_form)
+        return date
+
+    def upcoming_license(self):
+        """'Tell us about your upcoming license': State + Type of License (date comes prefilled)."""
+        self.wait_for_page("/new-agent-license-info")
+        state = self.page.locator("input[name='new_license_state']")
+        license_type = self.page.locator("input[name='new_license_type']")
+        # wait until the page has loaded its saved data (the date gets prefilled), else it wipes our choices
+        self.page.wait_for_function("() => document.querySelector(\"input[placeholder='Select Date']\")?.value",
+                                    timeout=DEFAULT_TIMEOUT)
+        self.wait_until_ready(3000)
+
+        def fill_form():
+            if state.input_value() != NEW_LICENSE["state"]:
+                self.select_dropdown("State", NEW_LICENSE["state"])
+                # Type of License options load for the chosen state
+                self.page.wait_for_function("el => el.value !== ''", arg=state.element_handle(), timeout=10_000)
+                self.wait_until_ready(2000)
+            if license_type.input_value() == "":
+                self.select_dropdown("Type of License", NEW_LICENSE["type"])
+        self.fill_and_next(fill_form)
+
+    # ---------- boards / formal actions / experience ----------
     def real_estate_boards(self):
         self.wait_for_page("/real-estate-boards")
 
@@ -96,6 +142,13 @@ class RoaApplicationPage(BasePage):
             self.select_dropdown_containing("Real Estate Boards / Associations", BOARDS["board"])
             self.select_dropdown_containing("Multiple Listing Service (MLS)", BOARDS["mls"])
         self.fill_and_next(fill_form)
+
+    def select_boards(self):
+        """Pick Board and MLS without clicking Next (to check the chips first)."""
+        self.wait_for_page("/real-estate-boards")
+        self.page.wait_for_timeout(1500)
+        self.select_dropdown_containing("Real Estate Boards / Associations", BOARDS["board"])
+        self.select_dropdown_containing("Multiple Listing Service (MLS)", BOARDS["mls"])
 
     def formal_actions(self):
         self.wait_for_page("/formal-actions")
@@ -119,12 +172,21 @@ class RoaApplicationPage(BasePage):
             self.fill(self.input("affiliated_brokerage"), PROFESSIONAL["brokerage"])
         self.fill_and_next(fill_form)
 
-    def sponsoring_agent(self):
-        """Continue without a sponsor (two confirm popups)."""
+    # ---------- sponsoring agent: continue without a sponsor ----------
+    def sponsor_video_popup(self):
+        return self.page.get_by_role("dialog")
+
+    def close_sponsor_video(self):
         self.wait_for_page("/sponsoring-agent")
         self.click_if_present(self.page.get_by_role("dialog").get_by_role("button", name="Close"), 8_000)
 
+    def next_without_sponsor(self):
+        """Click Next with an empty sponsor box -> 'Confirm: No Sponsor Selected' popup."""
         self.click(self.next_button())
+        self.wait_visible(self.page.get_by_text("I acknowledge that I am choosing not to name a sponsor."))
+
+    def confirm_no_sponsor(self):
+        """Tick + Confirm in both popups -> 'Are you a part of a team?' page."""
         self.click(self.page.get_by_text("I acknowledge that I am choosing not to name a sponsor."))
         self.confirm_popup()
         self.wait_visible(self.page.get_by_text("No Sponsor Selected").first)
@@ -135,6 +197,12 @@ class RoaApplicationPage(BasePage):
         self.confirm_popup()
         self.wait_for_url_change(old_url)
 
+    def sponsoring_agent(self):
+        self.close_sponsor_video()
+        self.next_without_sponsor()
+        self.confirm_no_sponsor()
+
+    # ---------- success page ----------
     def success_page(self):
         self.wait_for_page("/roa-application/success")
         self.click(self.button("Continue: Tax Information"))

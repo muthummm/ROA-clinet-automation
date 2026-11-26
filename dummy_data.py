@@ -6,20 +6,25 @@ from pathlib import Path
 from config import EMAIL_DOMAIN
 
 # ---------- fixed values ----------
-ADDRESS = {"line1": "123 Main Street", "line2": "Suite 100", "city": "Birmingham", "state": "Alabama", "zip": "35203"}
+ADDRESS = {"line1": "123 Main Street", "line2": "Apt 4B", "city": "Birmingham", "state": "Alabama", "zip": "35203"}
+TAX_ADDRESS = {"line1": "123 Main Street", "city": "Yellow Bluff", "state": "Alabama", "zip": "36745"}   # W-9 form
 PRIMARY_STATE = "Alabama"
 DATE_OF_BIRTH = "Choose Sunday, October 31st, 2010"      # calendar day label
+PREFERRED_NAME = "Asd"
 
-EMERGENCY_CONTACT = {"name": "guna", "phone": "3128585585", "email": "roa-test-001@mailinator.com"}
+EMERGENCY_CONTACT = {"name": "John Smith", "phone": "3125550199", "email": "roa-test-001@mailinator.com"}
 
 LICENSE = {"state": "Alabama", "type": "Salesperson",
            "expiry_days_from_today": 400, "transfer_days_from_today": 14}
 
-BOARDS = {"board": "Birmingham Association of REALTORS", "mls": "Greater Alabama MLS"}
+# newly licensed agent WITHOUT a license number (happy flow test cases)
+NEW_LICENSE = {"state": "Alabama", "type": "Salesperson", "issue_days_from_today": 30}
+
+BOARDS = {"board": "Northeast Alabama Association of REALTORS", "mls": "Greater Alabama MLS"}
 
 PROFESSIONAL = {"transactions_36m": "Less than 3", "transaction_count": "2",
                 "volume_12m": "$0-$1M", "transaction_type": "Residential Sales",
-                "nrds_id": "123456789", "brokerage": "Test Realty LLC"}
+                "nrds_id": "123456789", "brokerage": "Test Realty"}
 
 TAX = {"ssn": "123456789", "classification": "Individual"}
 

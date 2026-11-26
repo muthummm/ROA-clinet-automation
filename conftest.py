@@ -17,6 +17,7 @@ from slugify import slugify          # comes with pytest-playwright (same names 
 
 import config
 import dashboard
+from testcase_tracker import TestCaseTracker
 
 USERS_FILE = os.path.join(os.path.dirname(__file__), "created_users.csv")
 
@@ -44,7 +45,12 @@ def run_no(request):
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    return {**browser_type_launch_args, "headless": config.HEADLESS}
+    # keep the page running at full speed when the visible window is minimized or behind other windows
+    # (otherwise Chrome pauses it: dropdowns time out and the failure screenshot hangs)
+    keep_running = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+                    "--disable-background-timer-throttling"]
+    args = list(browser_type_launch_args.get("args") or []) + keep_running
+    return {**browser_type_launch_args, "headless": config.HEADLESS, "args": args}
 
 
 @pytest.fixture(scope="session")
@@ -95,6 +101,20 @@ def steps(request):
     return request.node.steps
 
 
+# ============================================================
+# tc - test cases from a sheet in test_cases/ (see testcase_tracker.py)
+#   @pytest.mark.testcases("agent_onboarding_happy_flow.csv")
+#   def test_x(page, steps, tc):
+#       with tc("TC_AO_001"): ...
+# ============================================================
+@pytest.fixture
+def tc(request, page):
+    marker = request.node.get_closest_marker("testcases")
+    assert marker, "add @pytest.mark.testcases('<sheet>.csv') to the test"
+    request.node.tc = TestCaseTracker(page, marker.args[0])
+    return request.node.tc
+
+
 def save_user(steps, outcome):
     """Add one row to created_users.csv for every user the test created."""
     user = steps.user
@@ -114,13 +134,14 @@ def save_user(steps, outcome):
 RESULTS = []
 
 
-def test_case_label(function_name):
-    """test_01_onboarding -> 'Test case 1 - Onboarding'"""
+def test_case_label(function_name, title=None):
+    """test_01_onboarding -> 'Test case 1 - Onboarding'
+    With @pytest.mark.title("My name") -> 'Test case 1 - My name'"""
     name = function_name.removeprefix("test_")
     number, _, rest = name.partition("_")
     if number.isdigit():
-        return f"Test case {int(number)} - {rest.replace('_', ' ').title()}"
-    return name.replace("_", " ").title()
+        return f"Test case {int(number)} - {title or rest.replace('_', ' ').title()}"
+    return title or name.replace("_", " ").title()
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -129,7 +150,8 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
     # record the test result (or a setup error, e.g. browser did not start)
     if report.when == "call" or (report.when == "setup" and not report.passed):
-        label = test_case_label(item.originalname or item.name)
+        title = item.get_closest_marker("title")
+        label = test_case_label(item.originalname or item.name, title.args[0] if title else None)
         params = getattr(item, "callspec", None)
         if params and "run_no" in params.params:
             label += f" (user {params.params['run_no']})"
@@ -149,6 +171,7 @@ def pytest_runtest_makereport(item, call):
             "user": steps.user if steps else None,
             "steps": steps.records if steps else [],
             "error": error,
+            "testcases": item.tc.results() if hasattr(item, "tc") else [],
         })
 
 
@@ -166,7 +189,15 @@ def pytest_terminal_summary(terminalreporter):
         if r["user"]:
             u = r["user"]
             terminalreporter.write_line(f"      user: {u['full_name']} | {u['email']} | {u['phone_number']}")
-    passed = sum(1 for r in RESULTS if r["outcome"] == "passed")
+        if r.get("testcases"):
+            counts = {}
+            for c in r["testcases"]:
+                counts[c["status"]] = counts.get(c["status"], 0) + 1
+            terminalreporter.write_line("      test cases: " + "   ".join(f"{k}: {v}" for k, v in counts.items()))
+            for c in r["testcases"]:
+                if c["status"] == "FAILED":
+                    terminalreporter.write_line(f"      {c['id']} FAILED - {c['actual'][:200]}", red=True)
+    passed =sum(1 for r in RESULTS if r["outcome"] == "passed")
     terminalreporter.write_line(f"\nTotal: {len(RESULTS)}   Passed: {passed}   Failed: {len(RESULTS) - passed}", bold=True)
 
     # ---------- dashboard ----------
@@ -212,8 +243,29 @@ def update_dashboard(pytest_config):
             name = f"screenshots/{stamp}_{i}.png"
             shutil.copy(shot, os.path.join(reports, name))
             r["screenshot"] = name
+    save_testcase_results(os.path.join(reports, "testcase_results.csv"))
     history_file = os.path.join(reports, "history.json")
     history = dashboard.load_history(history_file) + [{k: v for k, v in r.items() if k != "nodeid"} for r in RESULTS]
     dashboard.save_history(history_file, history)
     return os.path.abspath(dashboard.build_dashboard(history, history[-len(RESULTS):],
                                                      os.path.join(reports, "dashboard.html")))
+
+
+def save_testcase_results(path):
+    """Latest run in the same columns as the test case sheet, with Actual Result and Status filled in."""
+    rows = [(r, c) for r in RESULTS for c in r.get("testcases", [])]
+    if not rows:
+        return
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Run", "User", "TC ID", "Stage", "Page / Screen", "Test Scenario", "Expected Result",
+                         "Actual Result", "Status", "Priority", "Time (s)", "Sub-cases passed", "Sub-cases"])
+        for r, c in rows:
+            checks = [k for k in c.get("checks", []) if k["status"] in ("PASSED", "FAILED")]
+            passed = sum(1 for k in checks if k["status"] == "PASSED")
+            lines = "\n".join(f"{'OK  ' if k['status'] == 'PASSED' else 'FAIL' if k['status'] == 'FAILED' else '    '}"
+                              f" {k['kind'].upper():5} {k['name']}" + (f" -> {k['detail']}" if k.get("detail") else "")
+                              for k in c.get("checks", []))
+            writer.writerow([r["test"], (r.get("user") or {}).get("email", ""), c["id"], c["stage"], c["page"],
+                             c["scenario"], c["expected"], c["actual"], c["status"], c["priority"], c["seconds"],
+                             f"{passed}/{len(checks)}" if checks else "", lines])

@@ -1,6 +1,6 @@
 import re
 
-from config import DEFAULT_TIMEOUT, SLOW_TIMEOUT
+from config import DEFAULT_TIMEOUT
 from pages.base_page import BasePage
 
 ESIGN_FRAME = "iframe[name='x-hellosign-embedded']"
@@ -15,24 +15,70 @@ class SignIcaPage(BasePage):
     def complete(self, user):
         self.wait_for_page("/sign-your-ica")
         self.open_esign()
+        self.start_signing()
+        self.fill_mandatory_fields(user)
+        self.submit()
+        self.close_after_submit()
 
-        esign = self.page.frame_locator(ESIGN_FRAME)
-        self.click(esign.get_by_role("button", name="OK"))          # "not legally binding" popup
+    def esign(self):
+        return self.page.frame_locator(ESIGN_FRAME)
+
+    def start_signing(self):
+        """Close the 'not legally binding' popup and click Get started."""
+        esign = self.esign()
+        self.click(esign.get_by_role("button", name="OK"))
         self.click(esign.get_by_role("button", name="Get started"))
 
-        self.fill_mandatory_fields(user)
+    def fields_left(self):
+        """'13 required fields left' counter (found by its text - its CSS class changes)."""
+        return self.esign().locator("span", has_text=re.compile(r"^\s*\d+ required fields? left\s*$")).first
 
+    def open_first_initials(self):
+        """Click the first required initials field -> 'Add your initials' window."""
+        esign = self.esign()
+        self.wait_visible(self.fields_left())
+        field = esign.locator(f"[data-qa-ref='field-initials']{REQUIRED} [data-qa-ref='initials-input']",
+                              has_text="Click to initial").first
+        self.wait_visible(field)
+        field.scroll_into_view_if_needed()
+        self.click(field)
+        self.wait_visible(esign.get_by_role("tab", name="Type"))
+
+    def insert_initials_everywhere(self, user):
+        """In the open initials window: Type tab -> initials -> 'Fill in all fields' (insert everywhere)."""
+        before = self.fields_left().inner_text().strip()
+        self.type_signature(user["initials"], True, self.fields_left(), before)
+        self.wait_counter_change(self.fields_left(), before)
+        self.page.wait_for_timeout(800)     # 'Insert everywhere' fills the other pages a moment later
+
+    def submit(self):
+        esign = self.esign()
         self.click(esign.locator(NEXT_BUTTON, has_text="Continue"))
         self.click(esign.locator(AGREE_BUTTON).or_(esign.get_by_role("button", name="I agree")).first)
-        self.wait_visible(esign.get_by_text("Thanks for submitting your document!"), SLOW_TIMEOUT)
+        self.wait_visible(esign.get_by_text("Thanks for submitting your document!"))
 
-        # the app should move to the next page by itself - often it does not, so reload after 8s
-        try:
-            self.wait_for_page("/customize-agent-tools", timeout=8_000)
-        except Exception:
-            print("Still on Sign ICA after submitting, reloading page")
-            self.page.reload()
-            self.wait_for_page("/customize-agent-tools", timeout=SLOW_TIMEOUT)
+    def close_after_submit(self):
+        """Click Close in the e-sign window (if shown) and wait for the ICA success page or the next stage.
+        Returns 'success' (Sign Your ICA success page) or 'next' (app went straight to Agent Tools)."""
+        self.click_if_present(self.esign().get_by_role("button", name="Close"), 5_000)
+        success = self.page.get_by_text("Signed your ICA", exact=False)
+        for attempt in range(2):
+            for _ in range(40):                                   # max ~12s
+                if success.count() and success.first.is_visible():
+                    return "success"
+                if "/customize-agent-tools" in self.page.url:
+                    return "next"
+                self.page.wait_for_timeout(300)
+            if attempt == 0:
+                print("ICA success page not shown after submitting, reloading page")
+                self.page.reload(wait_until="domcontentloaded")
+        raise AssertionError(f"After signing: no ICA success page ({self.page.url})")
+
+    def continue_to_agent_tools(self):
+        if "/customize-agent-tools" not in self.page.url:
+            self.click(self.button("Continue: Customize Agent Tools"))
+            self.confirm_popup_if_present()
+        self.wait_for_page("/customize-agent-tools")
 
     def open_esign(self, attempts=6):
         """Open the Dropbox Sign window and wait until it has fully loaded (its 'OK' popup shows).
