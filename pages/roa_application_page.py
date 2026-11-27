@@ -98,6 +98,28 @@ class RoaApplicationPage(BasePage):
             self.pick_date(dates.nth(1), LICENSE["transfer_days_from_today"])
         self.fill_and_next(fill_form)
 
+    # ---------- license: several states (Real Estate License Details) ----------
+    def fill_license_details(self, licenses):
+        """licenses[0] = primary license, licenses[1:] = additional licenses (one block each, in order)."""
+        boxes = self.page.locator("input[role='combobox']")
+        dates = self.page.locator("input[placeholder='MM/DD/YYYY']")
+        for i, lic in enumerate(licenses):
+            self.select_in_combobox(boxes.nth(2 * i), lic["state"])
+            self.select_in_combobox(boxes.nth(2 * i + 1), lic["type"])
+            self.fill(self.input(f"licenses.{i}.license_no"), lic["number"])
+            self.pick_date(dates.nth(2 * i), lic["expiry_days_from_today"])
+            self.pick_date(dates.nth(2 * i + 1), lic["transfer_days_from_today"])
+
+    def select_board_option(self, index, text):
+        """Boards page has one Board and one MLS dropdown per state: 0 = 1st state Board, 1 = 1st state MLS,
+        2 = 2nd state Board ... Options read '<name> Active/Inactive', so pick by the name only."""
+        box = self.page.locator("input[role='combobox']").nth(index)
+        self.wait_visible(box).focus()
+        self.page.keyboard.press("ArrowDown")
+        option = self.page.locator("[role='option']", has_text=text).first
+        self.click(option)
+        self.page.keyboard.press("Escape")
+
     # ---------- license: newly licensed agent WITHOUT a license number ----------
     def issue_date_box(self):
         return self.page.locator("input[placeholder='Select Date']")

@@ -15,8 +15,10 @@ pages/             one file per screen of the website
    admin_login_page.py   admin site login (email + OTP)
    admin_agent_page.py   admin: find agent > Transfer now > Onboard Agent > check Active
 tests/
-   regression.py      regression test cases
-                      test_01 = 'Onboarding without Sponsor and Team' (happy flow), one block per test case
+   regression.py      main test cases only
+                      test_01 = 'Onboarding without Sponsor and Team' (happy flow)
+flows/
+   onboarding_without_sponsor_and_team.py   all sub test cases of test 1 (TC_AO_001 ... TC_AO_053)
                       (newly licensed agent without license number, no sponsor, no team)
 test_cases/
    agent_onboarding_happy_flow.csv   the test case sheet (TC ID, Stage, Scenario, Expected, Priority)
@@ -50,7 +52,7 @@ Test case 1 - Onboarding (user 2) ........ FAILED at 'Sign ICA'  (2m 54s)
 Every created user is added to `created_users.csv` (open it in Excel).
 
 ### Test cases
-Every row of `test_cases/agent_onboarding_happy_flow.csv` is checked in `tests/regression.py`:
+Every row of `test_cases/agent_onboarding_happy_flow.csv` is checked in `flows/onboarding_without_sponsor_and_team.py`:
 ```python
 with tc("TC_AO_025"):
     tc.see("Congrats", user["full_name"], "Continue: Tax Information")   # texts on screen

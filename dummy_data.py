@@ -22,6 +22,19 @@ NEW_LICENSE = {"state": "Alabama", "type": "Salesperson", "issue_days_from_today
 
 BOARDS = {"board": "Northeast Alabama Association of REALTORS", "mls": "Greater Alabama MLS"}
 
+# test case 2: newly licensed WITH license number, licensed in 2 states
+MULTI_STATE_LICENSES = [
+    {"state": "Alabama", "type": "Salesperson", "number": "123456", "expiry_days_from_today": 400,
+     "transfer_days_from_today": 14},                                                      # primary
+    {"state": "Alaska", "type": "Salesperson", "number": "654321", "expiry_days_from_today": 400,
+     "transfer_days_from_today": 14},                                                      # additional
+]
+# board + MLS per state (the Alaska ones are not active with ROA -> warning shown)
+MULTI_STATE_BOARDS = {
+    "Alabama": {"board": "Northeast Alabama Association of REALTORS", "mls": "Greater Alabama MLS"},
+    "Alaska": {"board": "Valley Board of REALTORS", "mls": "Southeast Alaska MLS"},
+}
+
 PROFESSIONAL = {"transactions_36m": "Less than 3", "transaction_count": "2",
                 "volume_12m": "$0-$1M", "transaction_type": "Residential Sales",
                 "nrds_id": "123456789", "brokerage": "Test Realty"}

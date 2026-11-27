@@ -17,21 +17,27 @@ class TransferLicensePage(BasePage):
         self.wait_visible(self.page.get_by_text("Pending Broker Review"))
         print("Done -> Pending Broker Review")
 
-    def card_action(self, text):
-        """'<State> License Transfer Instructions' / 'Upload Documents' on the license card (not real buttons)."""
-        return self.page.get_by_text(text, exact=False).filter(visible=True).first
+    def license_card(self, state):
+        """The 'Your License Transfers' card of one state (smallest block with the state and 'Upload Documents')."""
+        cards = self.page.locator("div").filter(has_text=f"{state} License Transfer Instructions")
+        return cards.filter(has_text="Planned Transfer Date").filter(has=self.page.get_by_text("Upload Documents")).last
+
+    def card_action(self, text, state=None):
+        """'<State> License Transfer Instructions' / 'Upload Documents' on a license card (not real buttons)."""
+        root = self.license_card(state) if state else self.page
+        return root.get_by_text(text, exact=False).filter(visible=True).first
 
     def store_link(self, store):
         """App Store / Google Play badge in the ROA+ banner."""
         site = {"App Store": "apple.com", "Google Play": "play.google.com"}[store]
         return self.page.locator(f"a[href*='{site}'], img[alt='{store}']").first
 
-    def upload_document(self, path=UPLOAD_FILE):
+    def upload_document(self, path=UPLOAD_FILE, state=None):
         """Click 'Upload Documents' and give it the file (direct file picker or an upload popup).
         Returns the file name."""
         try:
             with self.page.expect_file_chooser(timeout=5_000) as chooser:
-                self.click(self.card_action("Upload Documents"))
+                self.click(self.card_action("Upload Documents", state))
             chooser.value.set_files(path)
         except Exception:
             # an upload popup opened instead -> use its file input, then its upload/submit button

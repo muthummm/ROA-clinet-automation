@@ -135,6 +135,20 @@ class BasePage:
         if close_after:
             self.page.keyboard.press("Escape")
 
+    def select_in_combobox(self, box, option):
+        """Pick an option in a given dropdown (for pages with several dropdowns that have the same label)."""
+        choice = self.page.get_by_role("option", name=option, exact=True)
+        for attempt in range(1, 4):
+            self.wait_visible(box).focus()
+            self.page.keyboard.press("ArrowDown")
+            try:
+                self.wait_visible(choice, 5_000)
+                break
+            except Exception:
+                print(f"Dropdown did not open (attempt {attempt}), trying again")
+                box.click()
+        self.click(choice)
+
     def select_dropdown_by_typing(self, label, option):
         """Long lists (City, Zip Code): type to filter, then pick the option."""
         box = self.wait_visible(self.dropdown(label))
